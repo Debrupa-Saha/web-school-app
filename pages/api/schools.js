@@ -1,9 +1,7 @@
 import mysql from 'mysql2/promise';
 import multer from 'multer';
 
-// --------------------
-// Multer setup
-// --------------------
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: './public/schoolImages', // Make sure this folder exists locally
@@ -13,9 +11,7 @@ const upload = multer({
   }),
 });
 
-// --------------------
-// Middleware wrapper
-// --------------------
+ 
 function runMiddleware(req, res, fn) {
   return new Promise((resolve, reject) => {
     fn(req, res, (result) => {
@@ -25,7 +21,7 @@ function runMiddleware(req, res, fn) {
   });
 }
 
-// --------------------
+// -------------------
 // Disable body parser
 // --------------------
 export const config = { api: { bodyParser: false } };

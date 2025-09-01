@@ -1,19 +1,23 @@
 import mysql from 'mysql2/promise';
 import multer from 'multer';
-import fs from 'fs';
-import path from 'path';
+
+// Ensure the upload folder exists
+const uploadDir = path.join(process.cwd(), 'public', 'schoolImages');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 // Configure multer storage
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: './public/schoolImages',
-    filename: (req, file, cb) => {
-      cb(null, Date.now() + '-' + file.originalname);
-    },
-  }),
+const storage = multer.diskStorage({
+  destination: uploadDir,
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + '-' + file.originalname);
+  },
 });
 
-// Helper to run multer in Next.js API route
+const upload = multer({ storage });
+
+// Helper to run middleware in Next.js API route
 function runMiddleware(req, res, fn) {
   return new Promise((resolve, reject) => {
     fn(req, res, (result) => {
@@ -23,22 +27,28 @@ function runMiddleware(req, res, fn) {
   });
 }
 
+// Disable body parser for file uploads
 export const config = {
-  api: {
-    bodyParser: false, // required for file upload
-  },
+  api: { bodyParser: false },
 };
 
 export default async function handler(req, res) {
-  const connection = await mysql.createConnection(process.env.DATABASE_URL);
+  // Create DB connection
+  const connection = await mysql.createConnection({
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME,
+  });
 
   try {
     if (req.method === 'POST') {
-      // Run multer
+      // Handle file upload
       await runMiddleware(req, res, upload.single('image'));
 
       const { name, address, city, state, contact, email_id } = req.body;
-      const image = req.file ? req.file.filename : null;
+      const image = req.file ? `/schoolImages/${req.file.filename}` : null;
 
       await connection.execute(
         'INSERT INTO schools (name, address, city, state, contact, image, email_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -54,7 +64,7 @@ export default async function handler(req, res) {
     }
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'Database error' });
+    res.status(500).json({ error: err.message || 'Database error' });
   } finally {
     await connection.end();
   }

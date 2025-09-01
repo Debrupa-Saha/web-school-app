@@ -1,23 +1,21 @@
 import mysql from 'mysql2/promise';
 import multer from 'multer';
 
-// Ensure the upload folder exists
-const uploadDir = path.join(process.cwd(), 'public', 'schoolImages');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// Configure multer storage
-const storage = multer.diskStorage({
-  destination: uploadDir,
-  filename: (req, file, cb) => {
-    cb(null, Date.now() + '-' + file.originalname);
-  },
+// --------------------
+// Multer setup
+// --------------------
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: './public/schoolImages', // Make sure this folder exists locally
+    filename: (req, file, cb) => {
+      cb(null, Date.now() + '-' + file.originalname);
+    },
+  }),
 });
 
-const upload = multer({ storage });
-
-// Helper to run middleware in Next.js API route
+// --------------------
+// Middleware wrapper
+// --------------------
 function runMiddleware(req, res, fn) {
   return new Promise((resolve, reject) => {
     fn(req, res, (result) => {
@@ -27,45 +25,73 @@ function runMiddleware(req, res, fn) {
   });
 }
 
-// Disable body parser for file uploads
-export const config = {
-  api: { bodyParser: false },
-};
+// --------------------
+// Disable body parser
+// --------------------
+export const config = { api: { bodyParser: false } };
 
+// --------------------
+// API handler
+// --------------------
 export default async function handler(req, res) {
-  // Create DB connection
-  const connection = await mysql.createConnection({
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT,
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_NAME,
-  });
+  let connection;
 
   try {
+    // --------------------
+    // Connect to DB
+    // --------------------
+    connection = await mysql.createConnection({
+      host: process.env.DB_HOST,
+      port: process.env.DB_PORT,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+    });
+
+    // --------------------
+    // POST: Add school
+    // --------------------
     if (req.method === 'POST') {
-      // Handle file upload
       await runMiddleware(req, res, upload.single('image'));
 
+      console.log('Form data:', req.body);
+      console.log('File info:', req.file);
+
       const { name, address, city, state, contact, email_id } = req.body;
-      const image = req.file ? `/schoolImages/${req.file.filename}` : null;
+      const file = req.file;
+
+      if (!name || !address || !city || !state || !contact || !email_id || !file) {
+        return res.status(400).json({ error: 'All fields including image are required' });
+      }
+
+      const imagePath = `/schoolImages/${file.filename}`;
 
       await connection.execute(
         'INSERT INTO schools (name, address, city, state, contact, image, email_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [name, address, city, state, contact, image, email_id]
+        [name, address, city, state, contact, imagePath, email_id]
       );
 
-      res.status(200).json({ message: 'School added successfully' });
-    } else if (req.method === 'GET') {
+      return res.status(200).json({ message: 'School added successfully', imagePath });
+    }
+
+    // --------------------
+    // GET: Fetch schools
+    // --------------------
+    else if (req.method === 'GET') {
       const [rows] = await connection.execute('SELECT * FROM schools');
-      res.status(200).json(rows);
-    } else {
-      res.status(405).json({ message: 'Method not allowed' });
+      return res.status(200).json(rows);
+    }
+
+    // --------------------
+    // Other methods
+    // --------------------
+    else {
+      return res.status(405).json({ message: 'Method not allowed' });
     }
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message || 'Database error' });
+    console.error('Error adding school:', err);
+    return res.status(500).json({ error: err.message, stack: err.stack });
   } finally {
-    await connection.end();
+    if (connection) await connection.end();
   }
 }
